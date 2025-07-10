@@ -1,5 +1,5 @@
 {
-  "lumoImports": [
+  "lumoImports" : [
     "typography",
     "color",
     "spacing",
