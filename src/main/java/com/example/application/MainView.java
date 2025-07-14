@@ -5,6 +5,7 @@ import com.vaadin.flow.component.button.Button;
 import com.vaadin.flow.component.datepicker.DatePicker;
 import com.vaadin.flow.component.formlayout.FormLayout;
 import com.vaadin.flow.component.html.*;
+import com.vaadin.flow.component.html.Image;
 import com.vaadin.flow.component.notification.Notification;
 import com.vaadin.flow.component.orderedlayout.VerticalLayout;
 import com.vaadin.flow.component.textfield.TextField;
@@ -18,9 +19,13 @@ import com.google.zxing.common.BitMatrix;
 import com.google.zxing.qrcode.QRCodeWriter;
 import org.springframework.web.util.UriComponentsBuilder;
 
+import javax.imageio.ImageIO;
+import java.awt.*;
+import java.awt.image.BufferedImage;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.io.InputStream;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.Map;
@@ -34,8 +39,8 @@ public class MainView extends VerticalLayout {
     private final TextField middleName = new TextField("Отчество");
     private final DatePicker birthDate = new DatePicker("Дата платежа");
     private final NumberField amount = new NumberField("Сумма платежа");
-    private Image qrCodeImage;
-    private Anchor testLink; // Для отображения ссылки QR-кода
+    private final Image qrCodeImage;
+    private final Anchor testLink; // Для отображения ссылки QR-кода
 
     public MainView() {
         setSizeFull();
@@ -51,7 +56,13 @@ public class MainView extends VerticalLayout {
         formLayout.add(firstName, lastName, middleName, birthDate, amount);
         formLayout.setResponsiveSteps(new FormLayout.ResponsiveStep("0", 1));
 
-        Button generateButton = new Button("Сгенерировать QR код", e -> generateQRCode());
+        Button generateButton = new Button("Сгенерировать QR код", e -> {
+            try {
+                generateQRCode();
+            } catch (WriterException | IOException ex) {
+                throw new RuntimeException(ex);
+            }
+        });
         generateButton.setClassName("primary-button");
 
         qrCodeImage = new Image();
@@ -65,32 +76,81 @@ public class MainView extends VerticalLayout {
         add(contentDiv);
     }
 
-    private void generateQRCode() {
-        try {
-            String data = buildUrlWithParams();
-            QRCodeWriter writer = new QRCodeWriter();
-            BitMatrix bitMatrix = writer.encode(data, BarcodeFormat.QR_CODE, 300, 300);
+    private void generateQRCode() throws WriterException, IOException {
+        String data = buildUrlWithParams();
+        QRCodeWriter writer = new QRCodeWriter();
+        BitMatrix bitMatrix = writer.encode(data, BarcodeFormat.QR_CODE, 300, 300); // Увеличим размер для лучшего качества
 
-            ByteArrayOutputStream pngOutputStream = new ByteArrayOutputStream();
-            MatrixToImageWriter.writeToStream(bitMatrix, "PNG", pngOutputStream);
-            byte[] pngData = pngOutputStream.toByteArray();
+        // Генерируем PNG-изображение QR-кода
+        ByteArrayOutputStream pngOutputStream = new ByteArrayOutputStream();
+        MatrixToImageWriter.writeToStream(bitMatrix, "PNG", pngOutputStream);
+        BufferedImage originalQrImage = ImageIO.read(new ByteArrayInputStream(pngOutputStream.toByteArray()));
 
-            StreamResource resource = new StreamResource("qr.png",
-                    () -> new ByteArrayInputStream(pngData));
-            qrCodeImage.setSrc(resource);
-            qrCodeImage.setVisible(true);
+        // Обработка изображения — создаём новую картинку с прозрачностью и помещаем QR-код внутрь неё
+        int size = Math.min(originalQrImage.getWidth(), originalQrImage.getHeight()); // Получаем минимальный размер
+        BufferedImage roundedQrImage = new BufferedImage(size, size, BufferedImage.TYPE_INT_ARGB);
+        Graphics2D g2d = roundedQrImage.createGraphics();
+        g2d.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+        // Заливка фона светло-голубым цветом
+        g2d.setColor(new Color(0xEAF3FF)); // Нежно-голубой цвет
+        g2d.fillOval(0, 0, size, size); // Заполняем круговым градиентом
+        g2d.dispose();
 
-            // Показываем ссылку для ручной проверки QR-кода
-            testLink.setHref(data);
-            testLink.setVisible(true);
-        } catch (WriterException | IOException e) {
-            e.printStackTrace();
-            Notification.show("Ошибка при генерации QR-кода");
+
+        // Копируем исходный QR-код в новое изображение с закруглёнными углами
+        for(int x=0;x<size;x++) {
+            for(int y=0;y<size;y++) {
+                Color c = new Color(originalQrImage.getRGB(x,y), true);
+                if(c.getAlpha()==0 || c.equals(Color.WHITE)) continue; // Пропускаем прозрачные и белые области
+                roundedQrImage.setRGB(x, y, c.getRGB());
+            }
         }
+
+        // Теперь обработанное изображение с округлыми краями сохраняем в поток
+        ByteArrayOutputStream processedPngOutputStream = new ByteArrayOutputStream();
+        ImageIO.write(roundedQrImage, "png", processedPngOutputStream);
+
+        // Загружаем логотип и накладываем его в центр
+        InputStream logoInputStream = this.getClass().getResourceAsStream("/logo.jpg");
+        assert logoInputStream != null;
+        BufferedImage logoImage = ImageIO.read(logoInputStream);
+        int logoSize = size / 4; // Размер логотипа относительно QR-кода
+        logoImage = resizeImage(logoImage, logoSize, logoSize); // Масштабируем логотип
+        int posX = (size - logoSize) / 2;
+        int posY = (size - logoSize) / 2;
+
+        // Объединение логотипа и QR-кода
+        Graphics2D graphics = roundedQrImage.createGraphics();
+        graphics.drawImage(logoImage, posX, posY, null);
+        graphics.dispose();
+
+        // Преобразование финального изображения обратно в байтовый массив
+        ByteArrayOutputStream finalOutputStream = new ByteArrayOutputStream();
+        ImageIO.write(roundedQrImage, "png", finalOutputStream);
+        byte[] finalPngData = finalOutputStream.toByteArray();
+
+        // Готовое изображение используем дальше
+        StreamResource resource = new StreamResource("qr.png", () -> new ByteArrayInputStream(finalPngData));
+        qrCodeImage.setSrc(resource);
+        qrCodeImage.setVisible(true);
+
+        // Ссылка для проверки QR-кода вручную
+        testLink.setHref(data);
+        testLink.setVisible(true);
+    }
+
+    // Метод масштабирования изображения
+    private BufferedImage resizeImage(BufferedImage image, int targetWidth, int targetHeight) {
+        BufferedImage resizedImage = new BufferedImage(targetWidth, targetHeight, BufferedImage.TRANSLUCENT);
+        Graphics2D graphic = resizedImage.createGraphics();
+        graphic.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+        graphic.drawImage(image, 0, 0, targetWidth, targetHeight, null);
+        graphic.dispose();
+        return resizedImage;
     }
 
     private String buildUrlWithParams() {
-        return UriComponentsBuilder.fromUriString("http://localhost:8080/pay")
+        return UriComponentsBuilder.fromUriString("/pay")
                 .queryParam("firstName", firstName.getValue())
                 .queryParam("lastName", lastName.getValue())
                 .queryParam("middleName", middleName.getValue())
@@ -144,9 +204,7 @@ public class MainView extends VerticalLayout {
                     amountField
             );
 
-            Button payButton = new Button("Оплатить", e -> {
-                Notification.show("Ваш платёж успешно зарегистрирован");
-            });
+            Button payButton = new Button("Оплатить", e -> Notification.show("Ваш платёж успешно зарегистрирован"));
             payButton.setClassName("primary-button");
             payButton.setWidthFull();
 
