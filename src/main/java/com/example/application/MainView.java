@@ -25,7 +25,6 @@ import java.awt.image.BufferedImage;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
-import java.io.InputStream;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.Map;
@@ -91,11 +90,11 @@ public class MainView extends VerticalLayout {
         BufferedImage roundedQrImage = new BufferedImage(size, size, BufferedImage.TYPE_INT_ARGB);
         Graphics2D g2d = roundedQrImage.createGraphics();
         g2d.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+
         // Заливка фона светло-голубым цветом
         g2d.setColor(new Color(0xEAF3FF)); // Нежно-голубой цвет
         g2d.fillOval(0, 0, size, size); // Заполняем круговым градиентом
         g2d.dispose();
-
 
         // Копируем исходный QR-код в новое изображение с закруглёнными углами
         for(int x=0;x<size;x++) {
@@ -105,24 +104,6 @@ public class MainView extends VerticalLayout {
                 roundedQrImage.setRGB(x, y, c.getRGB());
             }
         }
-
-        // Теперь обработанное изображение с округлыми краями сохраняем в поток
-        ByteArrayOutputStream processedPngOutputStream = new ByteArrayOutputStream();
-        ImageIO.write(roundedQrImage, "png", processedPngOutputStream);
-
-        // Загружаем логотип и накладываем его в центр
-        InputStream logoInputStream = this.getClass().getResourceAsStream("/logo.jpg");
-        assert logoInputStream != null;
-        BufferedImage logoImage = ImageIO.read(logoInputStream);
-        int logoSize = size / 4; // Размер логотипа относительно QR-кода
-        logoImage = resizeImage(logoImage, logoSize, logoSize); // Масштабируем логотип
-        int posX = (size - logoSize) / 2;
-        int posY = (size - logoSize) / 2;
-
-        // Объединение логотипа и QR-кода
-        Graphics2D graphics = roundedQrImage.createGraphics();
-        graphics.drawImage(logoImage, posX, posY, null);
-        graphics.dispose();
 
         // Преобразование финального изображения обратно в байтовый массив
         ByteArrayOutputStream finalOutputStream = new ByteArrayOutputStream();
@@ -137,16 +118,6 @@ public class MainView extends VerticalLayout {
         // Ссылка для проверки QR-кода вручную
         testLink.setHref(data);
         testLink.setVisible(true);
-    }
-
-    // Метод масштабирования изображения
-    private BufferedImage resizeImage(BufferedImage image, int targetWidth, int targetHeight) {
-        BufferedImage resizedImage = new BufferedImage(targetWidth, targetHeight, BufferedImage.TRANSLUCENT);
-        Graphics2D graphic = resizedImage.createGraphics();
-        graphic.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
-        graphic.drawImage(image, 0, 0, targetWidth, targetHeight, null);
-        graphic.dispose();
-        return resizedImage;
     }
 
     private String buildUrlWithParams() {
